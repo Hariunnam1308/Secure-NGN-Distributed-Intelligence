@@ -34,8 +34,3 @@ The study successfully demonstrates that **Trimmed Mean Aggregation** significan
 ## 🎓 Academic Context
 This project was completed as part of an MSc Research Dissertation (June - August 2026). Full implementation details and evaluation can be found in the accompanying thesis chapters.
 ```
-
----
-
-### **3. Final Step: Link it in your Report**
-Once you have uploaded these to GitHub, copy the URL of your repository (e.g., `https://github.com/YourUsername/YourRepoName`) and paste it into **Appendix C: Artefact/Dataset** of your dissertation template. 
