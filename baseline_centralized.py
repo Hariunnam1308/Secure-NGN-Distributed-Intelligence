@@ -3,15 +3,24 @@
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, f1_score
 import json
 import os
+import joblib
+
+# ============================================================
+# LOCK ALL RANDOM SEEDS FOR REPRODUCIBILITY
+# ============================================================
+torch.manual_seed(42)
+np.random.seed(42)
+random.seed(42)
 
 # --- Load data ---
 df = pd.read_csv('ngn_traffic_data.csv')
@@ -27,7 +36,6 @@ X_train = scaler.fit_transform(X_train)
 X_test = scaler.transform(X_test)
 
 # Save scaler for later use in FL
-import joblib
 joblib.dump(scaler, 'scaler.pkl')
 
 # Convert to PyTorch tensors
@@ -55,7 +63,7 @@ class IntrusionDetector(nn.Module):
             nn.Linear(32, 1),
             nn.Sigmoid()
         )
-    
+
     def forward(self, x):
         return self.network(x)
 
@@ -82,10 +90,10 @@ for epoch in range(epochs):
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
-    
+
     avg_loss = epoch_loss / len(train_loader)
     train_losses.append(avg_loss)
-    
+
     # Evaluate
     model.eval()
     correct, total = 0, 0
@@ -96,10 +104,10 @@ for epoch in range(epochs):
             predicted = (outputs >= 0.5).float()
             correct += (predicted == batch_y).sum().item()
             total += batch_y.size(0)
-    
+
     acc = correct / total
     test_accuracies.append(acc)
-    
+
     if (epoch + 1) % 5 == 0:
         print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Test Accuracy: {acc:.4f}")
 
@@ -145,7 +153,6 @@ os.makedirs('results', exist_ok=True)
 with open('results/baseline_centralized.json', 'w') as f:
     json.dump(results, f, indent=2)
 
-# Save model
 torch.save(model.state_dict(), 'results/baseline_model.pth')
 print(f"\nResults saved to results/baseline_centralized.json")
 print(f"Model saved to results/baseline_model.pth")
