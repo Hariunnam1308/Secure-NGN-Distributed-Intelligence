@@ -4,16 +4,24 @@
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, f1_score, classification_report, confusion_matrix
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, f1_score, classification_report, confusion_matrix
 import copy
 import json
 import os
+
+# ============================================================
+# LOCK ALL RANDOM SEEDS FOR REPRODUCIBILITY
+# ============================================================
+torch.manual_seed(42)
+np.random.seed(42)
+random.seed(42)
 
 # --- Configuration ---
 NUM_CLIENTS = 5
@@ -21,14 +29,14 @@ FL_ROUNDS = 20
 LOCAL_EPOCHS = 3
 BATCH_SIZE = 64
 LEARNING_RATE = 0.001
-DP_EPSILON = 8.0        # Privacy budget (lower = stronger privacy)
-DP_DELTA = 1e-5          # Typically set to 1/(dataset_size)
-NOISE_MULTIPLIER = 1.0   # Controls Gaussian noise scale for DP
-CLIP_NORM = 1.0           # Gradient clipping threshold
+DP_EPSILON = 8.0
+DP_DELTA = 1e-5
+NOISE_MULTIPLIER = 1.0
+CLIP_NORM = 1.0
 
 os.makedirs('results', exist_ok=True)
 
-# --- Model definition (same architecture as baseline) ---
+# --- Model definition ---
 class IntrusionDetector(nn.Module):
     def __init__(self, input_dim):
         super().__init__()
@@ -44,7 +52,7 @@ class IntrusionDetector(nn.Module):
             nn.Linear(32, 1),
             nn.Sigmoid()
         )
-    
+
     def forward(self, x):
         return self.network(x)
 
@@ -54,22 +62,16 @@ df = pd.read_csv('ngn_traffic_data.csv')
 X = df.drop(['label', 'attack_type'], axis=1).values.astype(np.float32)
 y = df['label'].values.astype(np.float32)
 
-# Train/test split
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
-# Scale
 scaler = StandardScaler()
 X_train = scaler.fit_transform(X_train)
 X_test = scaler.transform(X_test)
 
-# Partition training data among NUM_CLIENTS (non-IID: each client gets a biased subset)
-# This simulates real edge deployments where each organization sees different traffic patterns
 client_data = []
 indices = np.arange(len(X_train))
 np.random.shuffle(indices)
 
-# Non-IID split: each client gets data weighted toward certain attack types
-# We approximate this by sorting and chunking
 chunk_size = len(X_train) // NUM_CLIENTS
 for i in range(NUM_CLIENTS):
     start = i * chunk_size
@@ -82,35 +84,27 @@ for i in range(NUM_CLIENTS):
     print(f"  Client {i+1}: {len(client_idx)} samples, "
           f"attack ratio: {y_train[client_idx].mean():.2%}")
 
-# Global test set
 X_test_t = torch.tensor(X_test, dtype=torch.float32)
 y_test_t = torch.tensor(y_test, dtype=torch.float32).unsqueeze(1)
 test_loader = DataLoader(TensorDataset(X_test_t, y_test_t), batch_size=BATCH_SIZE, shuffle=False)
 
 # --- Differential Privacy utilities ---
 def add_dp_noise(gradients, noise_multiplier, clip_norm):
-    """Add calibrated Gaussian noise to gradients for (ε, δ)-DP."""
     noisy_grads = {}
     for name, grad in gradients.items():
-        # Clip gradient
         grad_norm = torch.norm(grad)
         if grad_norm > clip_norm:
             grad = grad * (clip_norm / grad_norm)
-        # Add noise
         noise = torch.normal(0, noise_multiplier * clip_norm, grad.shape).to(grad.device)
         noisy_grads[name] = grad + noise
     return noisy_grads
 
 def compute_privacy_spent(noise_multiplier, steps, delta):
-    """Approximate ε using the moments accountant method (simplified)."""
-    # This is a simplified approximation; real implementations use RDP accountant
-    # For demonstration purposes
     epsilon = np.sqrt(2 * np.log(1.25 / delta)) / noise_multiplier * np.sqrt(steps)
     return epsilon
 
-# --- Federated Averaging (FedAvg) ---
+# --- Federated Averaging ---
 def federated_averaging(client_models):
-    """Average model weights across clients."""
     avg_state = {}
     for key in client_models[0].keys():
         avg_state[key] = sum([m[key] for m in client_models]) / len(client_models)
@@ -118,13 +112,12 @@ def federated_averaging(client_models):
 
 # --- Training function for a single client ---
 def train_client(model, data, epochs, device, add_privacy=False):
-    """Train model on a single client's data. Returns updated state dict."""
     model.train()
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    
+
     loader = DataLoader(TensorDataset(data['X'], data['y']), batch_size=BATCH_SIZE, shuffle=True)
-    
+
     for _ in range(epochs):
         for batch_x, batch_y in loader:
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
@@ -132,17 +125,16 @@ def train_client(model, data, epochs, device, add_privacy=False):
             outputs = model(batch_x)
             loss = criterion(outputs, batch_y)
             loss.backward()
-            
+
             if add_privacy:
-                # Clip and add noise to gradients
                 torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP_NORM)
                 for param in model.parameters():
                     if param.grad is not None:
                         noise = torch.normal(0, NOISE_MULTIPLIER * CLIP_NORM, param.grad.shape).to(device)
                         param.grad += noise
-            
+
             optimizer.step()
-    
+
     return copy.deepcopy(model.state_dict())
 
 # --- Evaluation on global test set ---
@@ -156,7 +148,7 @@ def evaluate(model, test_loader, device):
             predicted = (outputs >= 0.5).float()
             all_preds.extend(predicted.cpu().numpy())
             all_labels.extend(batch_y.cpu().numpy())
-    
+
     all_preds = np.array(all_preds).flatten()
     all_labels = np.array(all_labels).flatten()
     return accuracy_score(all_labels, all_preds), f1_score(all_labels, all_preds)
@@ -165,44 +157,38 @@ def evaluate(model, test_loader, device):
 print(f"\n[{'='*50}]")
 print(f"FEDERATED LEARNING WITH DIFFERENTIAL PRIVACY")
 print(f"Clients: {NUM_CLIENTS} | FL Rounds: {FL_ROUNDS} | Local Epochs: {LOCAL_EPOCHS}")
-print(f"DP: ε≈{DP_EPSILON}, noise_multiplier={NOISE_MULTIPLIER}")
+print(f"DP: epsilon≈{DP_EPSILON}, noise_multiplier={NOISE_MULTIPLIER}")
 print(f"[{'='*50}]\n")
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
-# Initialize global model
 input_dim = X_train.shape[1]
 global_model = IntrusionDetector(input_dim).to(device)
 
-# Track metrics
 fl_round_accuracies = []
 fl_round_f1s = []
 
 for round_num in range(1, FL_ROUNDS + 1):
     print(f"--- FL Round {round_num}/{FL_ROUNDS} ---")
-    
+
     client_states = []
-    
+
     for client_id in range(NUM_CLIENTS):
-        # Each client starts from the global model
         local_model = IntrusionDetector(input_dim).to(device)
         local_model.load_state_dict(global_model.state_dict())
-        
-        # Train locally with differential privacy
-        state = train_client(local_model, client_data[client_id], 
+
+        state = train_client(local_model, client_data[client_id],
                             LOCAL_EPOCHS, device, add_privacy=True)
         client_states.append(state)
-    
-    # Aggregate (FedAvg)
+
     new_global_state = federated_averaging(client_states)
     global_model.load_state_dict(new_global_state)
-    
-    # Evaluate
+
     acc, f1 = evaluate(global_model, test_loader, device)
     fl_round_accuracies.append(acc)
     fl_round_f1s.append(f1)
-    print(f"  Global Model → Accuracy: {acc:.4f}, F1: {f1:.4f}")
+    print(f"  Global Model -> Accuracy: {acc:.4f}, F1: {f1:.4f}")
 
 # --- Final evaluation ---
 final_acc, final_f1 = evaluate(global_model, test_loader, device)
@@ -212,9 +198,8 @@ print(f"FEDERATED LEARNING RESULTS (With Differential Privacy)")
 print(f"[{'='*50}]")
 print(f"Final Test Accuracy: {final_acc:.4f}")
 print(f"Final Test F1-Score: {final_f1:.4f}")
-print(f"Privacy budget (approx ε): {compute_privacy_spent(NOISE_MULTIPLIER, FL_ROUNDS * LOCAL_EPOCHS * NUM_CLIENTS, DP_DELTA):.2f}")
+print(f"Privacy budget (approx epsilon): {compute_privacy_spent(NOISE_MULTIPLIER, FL_ROUNDS * LOCAL_EPOCHS * NUM_CLIENTS, DP_DELTA):.2f}")
 
-# Full classification report
 global_model.eval()
 all_preds, all_labels = [], []
 with torch.no_grad():
@@ -230,7 +215,6 @@ all_labels = np.array(all_labels).flatten()
 print(f"\nClassification Report:")
 print(classification_report(all_labels, all_preds, target_names=['BENIGN', 'ATTACK']))
 
-# Save results
 results = {
     'model': 'federated_with_dp',
     'num_clients': NUM_CLIENTS,
