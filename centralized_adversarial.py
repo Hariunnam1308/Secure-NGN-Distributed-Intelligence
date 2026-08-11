@@ -8,16 +8,23 @@ MSc Dissertation: Distributed Intelligence for Secure NGNs
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, f1_score, classification_report, confusion_matrix
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, f1_score, classification_report
 import json
 import os
-import copy
+
+# ============================================================
+# LOCK ALL RANDOM SEEDS FOR REPRODUCIBILITY
+# ============================================================
+torch.manual_seed(42)
+np.random.seed(42)
+random.seed(42)
 
 # ============================================================
 # CONFIGURATION
