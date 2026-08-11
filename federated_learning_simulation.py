@@ -28,10 +28,10 @@ NUM_CLIENTS = 5
 FL_ROUNDS = 20
 LOCAL_EPOCHS = 3
 BATCH_SIZE = 64
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.01          # <-- increased from 0.001 to escape DP noise floor
 DP_EPSILON = 8.0
 DP_DELTA = 1e-5
-NOISE_MULTIPLIER = 1.0
+NOISE_MULTIPLIER = 1.0        # unchanged – ε stays at ~83.9
 CLIP_NORM = 1.0
 
 os.makedirs('results', exist_ok=True)
