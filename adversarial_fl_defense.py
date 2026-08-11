@@ -4,25 +4,33 @@
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, f1_score
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, f1_score
 import copy
 import json
 import os
 
+# ============================================================
+# LOCK ALL RANDOM SEEDS FOR REPRODUCIBILITY
+# ============================================================
+torch.manual_seed(42)
+np.random.seed(42)
+random.seed(42)
+
 NUM_CLIENTS = 5
-POISONED_CLIENTS = [1, 2]     # Two poisoned clients (stronger attack)
+POISONED_CLIENTS = [1, 2]
 FL_ROUNDS = 20
 LOCAL_EPOCHS = 3
 BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 TRIM_RATIO = 0.2
-POISON_MULTIPLIER = 5.0       # Amplify poisoned gradients
+POISON_MULTIPLIER = 5.0
 
 os.makedirs('results', exist_ok=True)
 
@@ -114,7 +122,6 @@ def train_client_poisoned(model, data, epochs, device):
             optimizer.zero_grad()
             loss = criterion(model(bx), by)
             loss.backward()
-            # Amplify gradients so poison dominates aggregation
             with torch.no_grad():
                 for param in model.parameters():
                     if param.grad is not None:
