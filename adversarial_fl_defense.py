@@ -28,8 +28,8 @@ POISONED_CLIENTS = [1, 2]
 FL_ROUNDS = 20
 LOCAL_EPOCHS = 3
 BATCH_SIZE = 64
-LEARNING_RATE = 0.01          # <-- increased from 0.001 to match clean FL
-TRIM_RATIO = 0.2
+LEARNING_RATE = 0.001          
+TRIM_RATIO = 0.4
 POISON_MULTIPLIER = 5.0
 
 os.makedirs('results', exist_ok=True)
